@@ -3,7 +3,7 @@ import type { DragEvent } from 'react';
 import { UploadCloud, FileText, X, Loader2 } from 'lucide-react';
 
 // URL da sua API (onde o Docker está rodando)
-const API_URL = 'http://localhost:3001/convert';
+const API_URL = import.meta.env.VITE_API_URL;
 
 // Tipo para o status da UI
 type StatusState = {
