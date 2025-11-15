@@ -4,6 +4,7 @@ import { UploadCloud, FileText, X, Loader2 } from 'lucide-react';
 
 // URL da sua API (onde o Docker está rodando)
 const API_URL = import.meta.env.VITE_API_URL;
+const MAX_FILES = 30;
 
 // Tipo para o status da UI
 type StatusState = {
@@ -29,10 +30,25 @@ export default function App() {
      */
     const addFiles = (newFiles: FileList) => {
         setStatus({ message: '', type: 'idle' });
+
+        // --- MODIFICADO ---
+        // 2. Verifica se a lista JÁ ESTÁ CHEIA antes de começar
+        if (files.length >= MAX_FILES) {
+            setStatus({ message: `Você já atingiu o limite de ${MAX_FILES} arquivos.`, type: 'error' });
+            return;
+        }
+
         const filesToAdd: File[] = [];
+        let limitReached = false; // Flag para controlar a mensagem
         
-        // Filtra apenas arquivos .docx
         Array.from(newFiles).forEach(file => {
+            // --- NOVO ---
+            // 3. Verifica se o limite foi atingido DENTRO do loop
+            if (files.length + filesToAdd.length >= MAX_FILES) {
+                limitReached = true;
+                return; // Para de adicionar mais arquivos
+            }
+
             const isDocx = file.name.endsWith('.docx') || file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
             const isDuplicate = files.some(f => f.name === file.name && f.size === file.size);
             
@@ -40,6 +56,14 @@ export default function App() {
                 filesToAdd.push(file);
             }
         });
+
+        // --- NOVO ---
+        // 4. Mostra a mensagem de limite se ela foi ativada
+        if (limitReached && filesToAdd.length > 0) {
+             setStatus({ message: `Limite de ${MAX_FILES} arquivos atingido. ${filesToAdd.length} arquivo(s) foram adicionados.`, type: 'error' });
+        } else if (limitReached) {
+             setStatus({ message: `Limite de ${MAX_FILES} arquivos atingido. Nenhum arquivo novo foi adicionado.`, type: 'error' });
+        }
         
         setFiles(prevFiles => [...prevFiles, ...filesToAdd]);
     };
@@ -96,12 +120,16 @@ export default function App() {
         }
     };
 
+    // ====================================================================
+    // --- FUNÇÃO MODIFICADA ---
+    // ====================================================================
     /**
      * Manipulador para o envio do formulário (botão Converter)
      */
     const handleSubmit = async () => {
         if (files.length === 0) {
-            setStatus({ message: 'Por favor, selecione pelo menos um arquivo .docx', type: 'error' });
+            // --- MENSAGEM MODIFICADA ---
+            setStatus({ message: 'Opa! Você precisa selecionar um arquivo .docx primeiro.', type: 'error' });
             return;
         }
 
@@ -110,7 +138,6 @@ export default function App() {
 
         const formData = new FormData();
         files.forEach(file => {
-            // A chave 'files' deve bater com a do backend (upload.array('files', 30))
             formData.append('files', file);
         });
 
@@ -122,14 +149,17 @@ export default function App() {
 
             if (!response.ok) {
                 // Se o servidor deu erro (500, etc.)
-                const errorText = await response.text();
-                throw new Error(errorText || 'Erro no servidor. Verifique o console do Docker.');
+                const errorText = await response.text(); // Ainda é bom logar para você
+                console.error("Erro do servidor:", errorText);
+                
+                // --- MENSAGEM MODIFICADA ---
+                // Em vez de mostrar o erro, joga um erro "genérico"
+                throw new Error('server_error'); 
             }
 
             // Sucesso! Processar o download do .zip
             const blob = await response.blob();
             
-            // Tenta pegar o nome do arquivo do header
             let filename = 'converted-files.zip';
             const contentDisposition = response.headers.get('content-disposition');
             if (contentDisposition) {
@@ -139,7 +169,6 @@ export default function App() {
                 }
             }
             
-            // Cria um link de download "invisível" e clica nele
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.style.display = 'none';
@@ -148,32 +177,55 @@ export default function App() {
             document.body.appendChild(a);
             a.click();
             
-            // Limpeza
             window.URL.revokeObjectURL(url);
             a.remove();
             
-            setStatus({ message: 'Conversão concluída! O download do .zip começou.', type: 'success' });
+            // --- MENSAGEM MODIFICADA (um pouco mais amigável) ---
+            setStatus({ message: 'Prontinho! ✨ Conversão concluída, seu download vai começar.', type: 'success' });
             clearAll(); // Limpa o formulário
 
         } catch (error: any) {
-            console.error('Erro na conversão:', error);
+            console.error('Erro na conversão:', error); // Mantenha isso para seu debug
+            
+            // --- LÓGICA DE ERRO MODIFICADA ---
             if (error.message.includes('Failed to fetch')) {
-                setStatus({ message: 'Erro de conexão: Não foi possível acessar o servidor. O Docker está rodando?', type: 'error' });
+                // Erro de rede (servidor offline, CORS, etc.)
+                setStatus({ 
+                    message: 'Opa! Não consegui conectar ao servidor. Tente de novo daqui a pouco.', 
+                    type: 'error' 
+                });
+            } else if (error.message === 'server_error') {
+                // Erro que jogamos acima (falha na conversão, 500)
+                setStatus({ 
+                    message: 'Ih, deu um probleminha no servidor ao tentar converter. Tente novamente!', 
+                    type: 'error' 
+                });
             } else {
-                setStatus({ message: error.message, type: 'error' });
+                // Outro erro inesperado
+                setStatus({ 
+                    message: 'Ocorreu um erro inesperado. Por favor, tente de novo.', 
+                    type: 'error' 
+                });
             }
         } finally {
             setIsLoading(false);
         }
     };
+    // ====================================================================
+    // --- FIM DA FUNÇÃO MODIFICADA ---
+    // ====================================================================
+
 
     return (
-        <div className="flex items-center justify-center min-h-screen bg-gray-100 font-sans">
+        <div className="flex items-center justify-center min-h-screen bg-gray-700 font-sans">
             <div className="bg-white w-full max-w-2xl p-8 rounded-xl shadow-lg m-4">
                 
                 <h1 className="text-3xl font-bold text-center text-gray-800 mb-6">
                     Converter DOCX para PDF
                 </h1>
+                <h3 className="text-xl font-bold text-center text-gray-400 mb-6">
+                    Conversões de 30 arquivos podem demorar até 5 minutos
+                </h3>
                 
                 {/* Zona de Arrastar e Soltar (Dropzone) */}
                 <div
